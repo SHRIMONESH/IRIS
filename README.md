@@ -482,11 +482,11 @@ IRIS/
 
 ### Current Limitations
 
-| Issue | Impact | Workaround |
-|-------|--------|------------|
-| No velocity tracking | Risk calculation uses static assumption | Future update planned |
+| Issue | Impact | Status |
+|-------|--------|--------|
+| ✅ ~~No velocity tracking~~ | ~~Risk calculation uses static assumption~~ | **FIXED** - VelocityTracker now tracks objects across frames |
 | API key in source | Security risk | Move to secure storage before release |
-| No offline voice mode | Requires internet for scene Q&A | Basic navigation works offline |
+| ✅ ~~No offline voice mode~~ | ~~Requires internet for scene Q&A~~ | **FIXED** - OfflineSceneDescriber provides fallback |
 | Single-device calibration | Distance estimates may vary | Re-calibrate for different phones |
 
 ### Device Compatibility
@@ -501,10 +501,11 @@ IRIS/
 
 ## 🗺️ Roadmap
 
-### Version 1.1 (Planned)
-- [ ] Velocity tracking for moving objects
+### Version 1.1 (In Progress)
+- [x] Velocity tracking for moving objects ✅
 - [ ] Secure API key storage
-- [ ] Offline scene description fallback
+- [x] Offline scene description fallback ✅
+- [ ] Multi-device calibration system
 - [ ] Multi-language support
 
 ### Version 1.2 (Planned)

@@ -300,6 +300,67 @@ class YoloDetector(context: Context) {
         interpreter?.close()
     }
 
+    // ================================================================
+    // VELOCITY INTEGRATION - Recalculate risk with velocity data
+    // ================================================================
+
+    /**
+     * Recalculates risk scores using velocity data from tracking
+     * @param originalResults Original detection results
+     * @param trackedResults Velocity-tracked detections
+     * @return Detection results with velocity-adjusted risk scores
+     */
+    fun recalculateRiskWithVelocity(
+        originalResults: List<DetectionResult>,
+        trackedResults: List<VelocityTracker.TrackedDetection>
+    ): List<DetectionResult> {
+        return originalResults.mapIndexed { index, detection ->
+            // Find matching tracked result
+            val tracked = trackedResults.getOrNull(index)
+
+            if (tracked != null && tracked.speed > 0.05f) {
+                // Recalculate risk with actual velocity
+                val newRisk = riskScorer.calculateRisk(
+                    distance = detection.distance,
+                    objectClass = detection.label,
+                    velocity = tracked.speed,
+                    position = detection.centerX
+                )
+
+                // Apply additional risk boost for approaching objects
+                val approachingBoost = if (tracked.isApproaching) 0.15f else 0f
+                val pathBoost = if (tracked.isMovingIntoPath) 0.1f else 0f
+                val totalBoost = approachingBoost + pathBoost
+
+                val adjustedScore = (newRisk.score + totalBoost).coerceIn(0f, 1f)
+                val adjustedLevel = when {
+                    adjustedScore > 0.75f -> RiskLevel.CRITICAL
+                    adjustedScore > 0.5f -> RiskLevel.WARNING
+                    adjustedScore > 0.3f -> RiskLevel.CAUTION
+                    else -> RiskLevel.INFO
+                }
+                val adjustedDelay = when (adjustedLevel) {
+                    RiskLevel.CRITICAL -> 400
+                    RiskLevel.WARNING -> 800
+                    RiskLevel.CAUTION -> 1200
+                    RiskLevel.INFO -> 1500
+                }
+
+                // Return updated detection with velocity data
+                detection.copy(
+                    riskScore = adjustedScore,
+                    riskLevel = adjustedLevel,
+                    announcementDelay = adjustedDelay,
+                    velocity = tracked.speed,
+                    isApproaching = tracked.isApproaching
+                )
+            } else {
+                // No velocity data, return original
+                detection
+            }
+        }
+    }
+
     data class DetectionResult(
         val label: String,
         val confidence: Float,
@@ -310,6 +371,8 @@ class YoloDetector(context: Context) {
         val distance: Float,
         val riskScore: Float,
         val riskLevel: RiskLevel,
-        val announcementDelay: Int
+        val announcementDelay: Int,
+        val velocity: Float = 0f,           // NEW: Object velocity (normalized units/sec)
+        val isApproaching: Boolean = false  // NEW: Is object moving towards camera?
     )
 }

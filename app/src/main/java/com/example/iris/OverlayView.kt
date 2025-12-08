@@ -392,15 +392,22 @@ class OverlayView(context: Context) : View(context) {
             val topLabel = "$riskIcon${result.label} ${(result.confidence * 100).toInt()}%"
             drawTextLabel(canvas, topLabel, left, top, boxPaint.color, isTop = true)
 
-            // Bottom label: Distance + Position
+            // Bottom label: Distance + Position + Velocity
             val distanceText = "${String.format("%.1f", result.distance)}m"
+            // Show velocity indicator when significant movement detected (>0.05 = ~5% screen/sec)
+            val velocityText = when {
+                result.velocity > 0.15f && result.isApproaching -> " ⚡FAST"
+                result.velocity > 0.05f && result.isApproaching -> " ↓CLOSE"
+                result.velocity > 0.05f -> " →"
+                else -> ""
+            }
             val positionText = when {
                 isInTunnel && isInDangerZone -> "🚨 COLLISION PATH"
                 isInTunnel -> "⚠ IN PATH"
                 result.centerX < 0.30 -> "← LEFT"
                 else -> "RIGHT →"
             }
-            val bottomLabel = "$distanceText | $positionText"
+            val bottomLabel = "$distanceText$velocityText | $positionText"
             drawTextLabel(canvas, bottomLabel, left, bottom, boxPaint.color, isTop = false)
         }
     }

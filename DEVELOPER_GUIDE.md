@@ -396,14 +396,16 @@ adb shell am force-stop com.example.iris
 
 ```
 app/src/main/java/com/example/iris/
-├── MainActivity.kt         # The main controller
-├── YoloDetector.kt         # Object detection AI
-├── PathSegmentor.kt        # Path analysis AI  
-├── GroqBrain.kt            # Cloud AI for conversations
-├── VoiceManager.kt         # Speech-to-Text & Text-to-Speech
-├── ConversationManager.kt  # Conversation history
-├── OverlayView.kt          # Visual AR overlay
-└── RiskLevel.kt            # Risk calculations
+├── MainActivity.kt           # The main controller
+├── YoloDetector.kt           # Object detection AI
+├── PathSegmentor.kt          # Path analysis AI  
+├── GroqBrain.kt              # Cloud AI for conversations
+├── VoiceManager.kt           # Speech-to-Text & Text-to-Speech
+├── ConversationManager.kt    # Conversation history + offline fallback
+├── OverlayView.kt            # Visual AR overlay
+├── RiskLevel.kt              # Risk calculations
+├── VelocityTracker.kt        # NEW: Object velocity tracking across frames
+└── OfflineSceneDescriber.kt  # NEW: Offline scene descriptions from YOLO data
 ```
 
 ### Detailed File Descriptions
@@ -685,10 +687,97 @@ data class Message(
 // When you ask a question:
 // 1. Adds your question to history
 // 2. Builds prompt with previous context
-// 3. Sends to GroqBrain
+// 3. Sends to GroqBrain (or falls back to OfflineSceneDescriber if offline)
 // 4. Adds response to history
 // 5. Returns response
 ```
+
+---
+
+#### 9. `VelocityTracker.kt` (290 lines) - The Motion Analyzer ✨ NEW
+**Purpose:** Tracks objects across frames to calculate movement velocity
+
+**How It Works:**
+```
+Frame N Detections          Frame N+1 Detections
+       │                            │
+       ▼                            ▼
+┌─────────────────────────────────────────┐
+│         IoU-Based Matching              │
+│  (Match objects by bounding box overlap)│
+└─────────────────────────────────────────┘
+                    │
+                    ▼
+┌─────────────────────────────────────────┐
+│         Velocity Calculation            │
+│  velocity = position_delta / time_delta │
+│  (with exponential smoothing)           │
+└─────────────────────────────────────────┘
+                    │
+                    ▼
+         TrackedDetection with:
+         - speed (normalized units/sec)
+         - isApproaching (moving towards camera)
+         - isMovingIntoPath (entering safety tunnel)
+```
+
+**Key Data Structures:**
+```kotlin
+data class TrackedObject(
+    val id: Int,              // Unique tracking ID
+    val label: String,        // Object class
+    var velocityX: Float,     // Horizontal movement
+    var velocityY: Float,     // Vertical movement (down = approaching)
+    var missingFrames: Int    // Frames since last seen
+)
+
+data class TrackedDetection(
+    val detection: DetectionResult,
+    val trackId: Int,
+    val speed: Float,
+    val isApproaching: Boolean,
+    val isMovingIntoPath: Boolean
+)
+```
+
+**Integration:** YoloDetector's `recalculateRiskWithVelocity()` uses this data to boost risk scores for approaching objects.
+
+---
+
+#### 10. `OfflineSceneDescriber.kt` (200 lines) - The Offline Brain ✨ NEW
+**Purpose:** Generates scene descriptions from YOLO detections when offline
+
+**How It Works:**
+```
+YOLO Detections
+       │
+       ▼
+┌─────────────────────────────────────────┐
+│         Categorize Objects              │
+│  people, vehicles, obstacles, navigation│
+└─────────────────────────────────────────┘
+       │
+       ▼
+┌─────────────────────────────────────────┐
+│      Generate Natural Language          │
+│  "2 people ahead, 1 on left at 1.5m..." │
+└─────────────────────────────────────────┘
+       │
+       ▼
+        Scene Description String
+```
+
+**Supported Question Types:**
+| Question Type | Example | Response |
+|---------------|---------|----------|
+| Count | "How many people?" | "I detect 3 people..." |
+| Presence | "Is there a car?" | "Yes, there is a car at 2.3m..." |
+| Location | "Where is the person?" | "Person is on your left..." |
+| Safety | "Is it safe?" | "Caution: obstacles detected..." |
+| Distance | "How far is the car?" | "The car is approximately 4.5m..." |
+| Movement | "What's moving?" | "Approaching objects: person..." |
+
+**Integration:** ConversationManager automatically falls back to this when network is unavailable.
 
 ---
 

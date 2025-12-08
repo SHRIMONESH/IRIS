@@ -18,6 +18,11 @@ class ConversationManager(private val groqBrain: GroqBrain) {
     private var currentImage: Bitmap? = null
     private val maxHistoryLength = 20 // Keep last 20 messages for context
 
+    // NEW: Offline fallback support
+    private val offlineDescriber = OfflineSceneDescriber()
+    private var currentDetections: List<YoloDetector.DetectionResult> = emptyList()
+    private var isOfflineMode = false
+
     /**
      * Set the image context for the conversation
      * This clears previous conversation history
@@ -25,7 +30,16 @@ class ConversationManager(private val groqBrain: GroqBrain) {
     fun setContextImage(image: Bitmap) {
         currentImage = image
         conversationHistory.clear()
+        isOfflineMode = false
         Log.d(tag, "Context image set, conversation reset")
+    }
+
+    /**
+     * NEW: Set current YOLO detections for offline mode
+     */
+    fun setDetections(detections: List<YoloDetector.DetectionResult>) {
+        currentDetections = detections
+        Log.d(tag, "Detections updated: ${detections.size} objects")
     }
 
     /**
@@ -64,6 +78,7 @@ class ConversationManager(private val groqBrain: GroqBrain) {
 
     /**
      * Get a response from Groq with full conversation context
+     * Falls back to offline mode if Groq is unavailable
      */
     suspend fun getResponse(userMessage: String): String {
         addUserMessage(userMessage)
@@ -74,6 +89,14 @@ class ConversationManager(private val groqBrain: GroqBrain) {
                     return@withContext "Error: No image context available. Please restart voice mode."
                 }
 
+                // If already in offline mode, use offline describer directly
+                if (isOfflineMode) {
+                    Log.d(tag, "Using offline mode for response")
+                    val offlineResponse = getOfflineResponse(userMessage)
+                    addAssistantMessage(offlineResponse)
+                    return@withContext offlineResponse
+                }
+
                 // Build comprehensive prompt with conversation history
                 val conversationPrompt = buildConversationPrompt(userMessage)
 
@@ -82,18 +105,60 @@ class ConversationManager(private val groqBrain: GroqBrain) {
                 // Call GroqBrain's analyze method (the correct method name)
                 val response = groqBrain.analyze(currentImage!!, conversationPrompt)
 
-                // Only add successful responses to history
-                if (!response.startsWith("Error:")) {
-                    addAssistantMessage(response)
-                    Log.d(tag, "Successfully got response from Groq")
-                } else {
-                    Log.e(tag, "Error from Groq: $response")
+                // Check if we got an error (network/API issue)
+                if (response.startsWith("Error:")) {
+                    Log.w(tag, "Groq failed: $response. Switching to offline mode.")
+
+                    // Check if it's a network error
+                    if (response.contains("internet", ignoreCase = true) ||
+                        response.contains("network", ignoreCase = true) ||
+                        response.contains("timeout", ignoreCase = true) ||
+                        response.contains("connection", ignoreCase = true)) {
+
+                        isOfflineMode = true
+                        val offlineResponse = getOfflineResponse(userMessage)
+                        addAssistantMessage(offlineResponse)
+
+                        // Prepend offline notice
+                        return@withContext "I'm currently offline. $offlineResponse"
+                    }
+
+                    return@withContext response
                 }
 
+                // Success - add to history
+                addAssistantMessage(response)
+                Log.d(tag, "Successfully got response from Groq")
                 response
+
             } catch (e: Exception) {
                 Log.e(tag, "Error getting response from Groq", e)
-                "Error: ${e.message ?: "Failed to get response"}"
+
+                // Try offline fallback
+                Log.w(tag, "Falling back to offline mode due to exception")
+                isOfflineMode = true
+                val offlineResponse = getOfflineResponse(userMessage)
+                addAssistantMessage(offlineResponse)
+                "I'm currently offline. $offlineResponse"
+            }
+        }
+    }
+
+    /**
+     * NEW: Get response using offline scene describer
+     */
+    private fun getOfflineResponse(userMessage: String): String {
+        return if (currentDetections.isEmpty()) {
+            "I'm offline and don't have any detection data. Please try again when connected to the internet."
+        } else {
+            // Check if this is an initial description request or a follow-up question
+            val isInitialRequest = conversationHistory.size <= 1 ||
+                    userMessage.lowercase().contains("what") && userMessage.lowercase().contains("see")
+
+            if (isInitialRequest) {
+                offlineDescriber.describeScene(currentDetections)
+            } else {
+                offlineDescriber.answerQuestion(userMessage, currentDetections)
             }
         }
     }

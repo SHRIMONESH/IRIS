@@ -53,6 +53,7 @@ class MainActivity : ComponentActivity() {
     private lateinit var groqBrain: GroqBrain
     private lateinit var voiceManager: VoiceManager
     private lateinit var conversationManager: ConversationManager
+    private lateinit var velocityTracker: VelocityTracker
 
     // ================================================================
     // STATE MANAGEMENT
@@ -83,6 +84,10 @@ class MainActivity : ComponentActivity() {
     // CRITICAL: Track objects in danger zone
     private var lastDangerZoneWarning = 0L
     private val DANGER_ZONE_REPEAT_INTERVAL = 500L  // Repeat every 500ms for critical
+
+    // NEW: Store last detections for offline voice mode
+    @Volatile
+    private var lastYoloDetections: List<YoloDetector.DetectionResult> = emptyList()
 
     // ================================================================
     // CAMERA
@@ -146,6 +151,7 @@ class MainActivity : ComponentActivity() {
             pathSegmentor = PathSegmentor(this)
             groqBrain = GroqBrain()
             conversationManager = ConversationManager(groqBrain)
+            velocityTracker = VelocityTracker()
 
             voiceManager = VoiceManager(
                 context = this,
@@ -271,6 +277,7 @@ class MainActivity : ComponentActivity() {
         overlayView.enterVoiceMode()
         assistantTextView.text = "🎤 Voice Mode - Analyzing scene..."
         conversationManager.setContextImage(capturedBitmap)
+        conversationManager.setDetections(lastYoloDetections)  // Pass detections for offline fallback
         speak("Voice mode activated. Analyzing what you're looking at.", false)
 
         CoroutineScope(Dispatchers.IO).launch {
@@ -327,6 +334,9 @@ class MainActivity : ComponentActivity() {
         lastAnnouncedInstruction = ""
         lastAnnouncementTime = 0L
         consecutiveStopCount = 0
+
+        // Reset velocity tracking for fresh start
+        velocityTracker.reset()
     }
 
     private fun handleUserSpeech(spokenText: String) {
@@ -440,10 +450,22 @@ class MainActivity : ComponentActivity() {
                             // 1. YOLO Detection
                             val yoloResults = yoloDetector.detect(bitmapToAnalyze)
 
-                            // 2. CRITICAL: Pass YOLO detections to path segmentor
+                            // 2. NEW: Track velocities across frames
+                            val trackedResults = velocityTracker.updateAndGetVelocities(yoloResults)
+
+                            // 3. NEW: Recalculate risk with velocity data
+                            val velocityEnrichedResults = yoloDetector.recalculateRiskWithVelocity(
+                                yoloResults,
+                                trackedResults
+                            )
+
+                            // Store detections for offline voice mode
+                            lastYoloDetections = velocityEnrichedResults
+
+                            // 4. CRITICAL: Pass YOLO detections to path segmentor
                             val pathAnalysis = pathSegmentor.analyzePathWithYolo(
                                 bitmapToAnalyze,
-                                yoloResults  // CRITICAL: Provide YOLO data for danger zone analysis
+                                velocityEnrichedResults  // CRITICAL: Provide YOLO data for danger zone analysis
                             )
 
                             val imgWidth = bitmapToAnalyze.width
@@ -453,7 +475,7 @@ class MainActivity : ComponentActivity() {
                                 if (isNavigationMode && !isFrozen) {
                                     // Update overlay
                                     overlayView.updateAll(
-                                        yolo = yoloResults,
+                                        yolo = velocityEnrichedResults,
                                         direction = pathAnalysis.navigationCommand.instruction,
                                         imgWidth = imgWidth,
                                         imgHeight = imgHeight
@@ -461,7 +483,7 @@ class MainActivity : ComponentActivity() {
 
                                     // CRITICAL: Process announcements with dynamic updates
                                     processDynamicAnnouncements(
-                                        yoloResults,
+                                        velocityEnrichedResults,
                                         pathAnalysis.navigationCommand
                                     )
                                 }
