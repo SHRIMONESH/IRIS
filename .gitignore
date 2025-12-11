@@ -1,3 +1,4 @@
+# Android Studio / Gradle
 *.iml
 .gradle
 /local.properties
@@ -13,3 +14,34 @@
 .externalNativeBuild
 .cxx
 local.properties
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+env/
+ENV/
+.venv
+
+# Evaluation / Testing
+test_data/images/
+test_data/temp/
+evaluation_results/evaluation_report.txt
+*.log
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Sensitive
+*.env
+secrets.properties

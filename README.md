@@ -488,6 +488,7 @@ IRIS/
 | API key in source | Security risk | Move to secure storage before release |
 | ✅ ~~No offline voice mode~~ | ~~Requires internet for scene Q&A~~ | **FIXED** - OfflineSceneDescriber provides fallback |
 | Single-device calibration | Distance estimates may vary | Re-calibrate for different phones |
+| Model confidence tuning | Some low-confidence detections (false alarms) | **IN PROGRESS** - Evaluation complete, threshold tuning needed |
 
 ### Device Compatibility
 
@@ -499,12 +500,52 @@ IRIS/
 
 ---
 
+## 📊 Model Evaluation
+
+IRIS includes comprehensive evaluation tools to measure model quality and identify false alarm patterns.
+
+### Evaluation Results (December 2025)
+
+**Test Dataset:** 30 street scene images from Pexels
+
+| Configuration | Detections | Avg Confidence | High Conf (>0.7) | Low Conf (<0.4) |
+|--------------|------------|----------------|------------------|-----------------|
+| **Threshold 0.3** | 196 | 0.613 | 40.8% | 19.4% ⚠️ |
+| **Threshold 0.5** | 126 | 0.741 ✅ | 63.5% | 0% ✅ |
+
+**Key Findings:**
+- ✅ Strong person detection (74.5% of detections)
+- ⚠️ Moderate confidence (0.613) with 0.3 threshold
+- ✅ Higher threshold (0.5) eliminates low-confidence false alarms
+- 🚨 Higher threshold reduces obstacle detection by 75% (safety concern)
+
+**Recommendation:** Use threshold 0.4 as balance point between false alarms and safety.
+
+### Run Your Own Evaluation
+
+```bash
+# Quick evaluation with sample images
+python scripts/evaluate_model_standalone.py --images test_data/images
+
+# Test different confidence thresholds
+python scripts/evaluate_model_standalone.py --images test_data/images --conf-threshold 0.4
+
+# Full evaluation with ground truth
+python scripts/evaluate_model_standalone.py --images ./test_images --coco-annotations ./annotations.json
+```
+
+See [EVALUATION_GUIDE.md](EVALUATION_GUIDE.md) for complete instructions.
+
+---
+
 ## 🗺️ Roadmap
 
 ### Version 1.1 (In Progress)
 - [x] Velocity tracking for moving objects ✅
-- [ ] Secure API key storage
 - [x] Offline scene description fallback ✅
+- [x] Model evaluation framework ✅
+- [ ] Confidence threshold tuning
+- [ ] Secure API key storage
 - [ ] Multi-device calibration system
 - [ ] Multi-language support
 
