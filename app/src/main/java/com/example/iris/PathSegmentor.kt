@@ -7,6 +7,12 @@ import android.graphics.Color
 import android.graphics.Paint
 import android.util.Log
 import org.tensorflow.lite.Interpreter
+import org.tensorflow.lite.gpu.CompatibilityList
+import org.tensorflow.lite.gpu.GpuDelegate
+import org.tensorflow.lite.support.image.ImageProcessor
+import org.tensorflow.lite.support.image.TensorImage
+import org.tensorflow.lite.support.image.ops.ResizeOp
+import org.tensorflow.lite.support.common.ops.NormalizeOp
 import java.io.FileInputStream
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
@@ -27,7 +33,11 @@ class PathSegmentor(context: Context) {
     private var interpreter: Interpreter? = null
     private var inputBuffer: ByteBuffer? = null
     private var outputBuffer: ByteBuffer? = null
-    private val pixels = IntArray(INPUT_SIZE * INPUT_SIZE)
+    
+    private val imageProcessor = ImageProcessor.Builder()
+        .add(ResizeOp(INPUT_SIZE, INPUT_SIZE, ResizeOp.ResizeMethod.BILINEAR))
+        .add(NormalizeOp(0f, 255f))
+        .build()
 
     private var scaleX = 1.0f
     private var scaleY = 1.0f
@@ -40,7 +50,21 @@ class PathSegmentor(context: Context) {
             val modelFile = loadModelFile(context, modelName)
             val options = Interpreter.Options().apply {
                 setNumThreads(4)
-                setUseNNAPI(false)
+                try {
+                    val compatList = CompatibilityList()
+                    if (compatList.isDelegateSupportedOnThisDevice) {
+                        val delegateOptions = compatList.bestOptionsForThisDevice
+                        val gpuDelegate = GpuDelegate(delegateOptions)
+                        addDelegate(gpuDelegate)
+                        Log.d("IRIS_SEG", "✅ GPU delegate enabled for segmentation (Best Options)")
+                    } else {
+                        Log.w("IRIS_SEG", "⚠️ GPU delegate not supported, using NNAPI")
+                        setUseNNAPI(true)
+                    }
+                } catch (e: Exception) {
+                    Log.w("IRIS_SEG", "⚠️ GPU initialization failed: ${e.message}")
+                    setUseNNAPI(true)  // Fallback to NNAPI
+                }
                 Log.d("IRIS_SEG", "⚡ Initializing Path Segmentation Model")
             }
 
@@ -86,12 +110,14 @@ class PathSegmentor(context: Context) {
         val startTime = System.currentTimeMillis()
         val defaultCommand = NavigationCommand("Unknown", 3, 1500, "STOP")
         val tflite = interpreter ?: return PathAnalysisResult("Unknown", emptyList(), 0f, 0f, 0f, defaultCommand)
-        val inBuf = inputBuffer ?: return PathAnalysisResult("Unknown", emptyList(), 0f, 0f, 0f, defaultCommand)
         val outBuf = outputBuffer ?: return PathAnalysisResult("Unknown", emptyList(), 0f, 0f, 0f, defaultCommand)
 
         try {
-            val letterboxed = createLetterboxedBitmap(bitmap)
-            bitmapToByteBuffer(letterboxed, inBuf)
+            // Optimized Preprocessing using TensorImage
+            var tensorImage = TensorImage(org.tensorflow.lite.DataType.FLOAT32)
+            tensorImage.load(bitmap)
+            tensorImage = imageProcessor.process(tensorImage)
+            val inBuf = tensorImage.buffer
 
             outBuf.rewind()
             tflite.run(inBuf, outBuf)
@@ -101,8 +127,10 @@ class PathSegmentor(context: Context) {
 
             lastInferenceTime = System.currentTimeMillis() - startTime
 
-            if (lastInferenceTime > 15) {
-                Log.w("IRIS_SEG", "⚠️ Segmentation slow: ${lastInferenceTime}ms (target: <15ms)")
+            if (lastInferenceTime > 50) {
+                Log.w("IRIS_SEG", "⚠️ Segmentation slow: ${lastInferenceTime}ms (target: <50ms)")
+            } else {
+                Log.d("IRIS_SEG", "⚡ Segmentation time: ${lastInferenceTime}ms")
             }
 
             return result
@@ -309,7 +337,7 @@ class PathSegmentor(context: Context) {
         }
 
         // RULE 3: Strong directional bias (normal navigation)
-        val threshold = 0.3f
+        val threshold = 0.15f
 
         return when {
             leftScore > rightScore + threshold && leftScore > centerScore -> {
@@ -358,47 +386,6 @@ class PathSegmentor(context: Context) {
                 )
             }
         }
-    }
-
-    private fun createLetterboxedBitmap(source: Bitmap): Bitmap {
-        val srcWidth = source.width.toFloat()
-        val srcHeight = source.height.toFloat()
-        val scale = min(INPUT_SIZE / srcWidth, INPUT_SIZE / srcHeight)
-        val scaledWidth = (srcWidth * scale).toInt()
-        val scaledHeight = (srcHeight * scale).toInt()
-
-        offsetX = (INPUT_SIZE - scaledWidth) / 2f
-        offsetY = (INPUT_SIZE - scaledHeight) / 2f
-        scaleX = scaledWidth / srcWidth
-        scaleY = scaledHeight / srcHeight
-
-        val letterboxed = Bitmap.createBitmap(INPUT_SIZE, INPUT_SIZE, Bitmap.Config.ARGB_8888)
-        val canvas = Canvas(letterboxed)
-        canvas.drawColor(Color.BLACK)
-
-        val paint = Paint(Paint.FILTER_BITMAP_FLAG)
-        val scaledBitmap = Bitmap.createScaledBitmap(source, scaledWidth, scaledHeight, true)
-        canvas.drawBitmap(scaledBitmap, offsetX, offsetY, paint)
-
-        if (scaledBitmap != source) scaledBitmap.recycle()
-        return letterboxed
-    }
-
-    private fun bitmapToByteBuffer(bitmap: Bitmap, buffer: ByteBuffer) {
-        buffer.rewind()
-        bitmap.getPixels(pixels, 0, INPUT_SIZE, 0, 0, INPUT_SIZE, INPUT_SIZE)
-
-        for (i in pixels.indices) {
-            val pixel = pixels[i]
-            val r = ((pixel shr 16) and 0xFF) / 255.0f
-            val g = ((pixel shr 8) and 0xFF) / 255.0f
-            val b = (pixel and 0xFF) / 255.0f
-
-            buffer.putFloat(r)
-            buffer.putFloat(g)
-            buffer.putFloat(b)
-        }
-        buffer.rewind()
     }
 
     fun getLastInferenceTime(): Long = lastInferenceTime

@@ -730,4 +730,32 @@ class MainActivity : ComponentActivity() {
         bitmap.copyPixelsFromBuffer(planes[0].buffer)
         return bitmap
     }
+
+    private fun estimatePathFromYolo(detections: List<YoloDetector.DetectionResult>): String {
+        if (detections.isEmpty()) return "Go Forward"
+        
+        // Count objects in left, center, right zones
+        var leftCount = 0
+        var centerCount = 0
+        var rightCount = 0
+        
+        detections.forEach { det ->
+            val centerX = det.centerX
+            val screenThird = 1.0f / 3.0f
+            
+            when {
+                centerX < screenThird -> leftCount++
+                centerX > 2 * screenThird -> rightCount++
+                else -> centerCount++
+            }
+        }
+        
+        // Navigate away from obstacles
+        return when {
+            leftCount > centerCount && leftCount > rightCount -> "Veer Right"
+            rightCount > centerCount && rightCount > leftCount -> "Veer Left"
+            centerCount > 2 -> "Caution: Obstacles Ahead"
+            else -> "Go Forward"
+        }
+    }
 }

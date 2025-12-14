@@ -72,9 +72,11 @@ dependencies {
     implementation("androidx.camera:camera-view:${camerax_version}")
 
     // --- 3. REFLEX BRAIN (Layer 1: YOLO Detector + Segmentation) ---
-    // Runs 'best_float32.tflite' offline using Google LiteRT (formerly TensorFlow Lite)
-    implementation("com.google.ai.edge.litert:litert:1.0.1")
-    implementation("com.google.ai.edge.litert:litert-support:1.0.1")
+    // Runs 'best_float32.tflite' offline using TensorFlow Lite
+    implementation("org.tensorflow:tensorflow-lite:2.14.0")
+    implementation("org.tensorflow:tensorflow-lite-gpu:2.14.0")
+    implementation("org.tensorflow:tensorflow-lite-gpu-api:2.14.0")
+    implementation("org.tensorflow:tensorflow-lite-support:0.4.4")
 
     // --- 4. COGNITIVE BRAIN (Layer 2: Groq LPU API) ---
     // The "Smart Brain" for Medicine, Recipes, and Brands.
@@ -84,7 +86,4 @@ dependencies {
     // --- 5. UTILS ---
     // JSON parsing for Groq API responses
     implementation("com.google.code.gson:gson:2.10.1")
-
-    // --- REMOVED ---
-    // implementation("com.google.ai.client.generativeai:generativeai:0.9.0") // Removed Gemini
 }

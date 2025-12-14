@@ -7,6 +7,8 @@ import android.graphics.Color
 import android.graphics.Paint
 import android.util.Log
 import org.tensorflow.lite.Interpreter
+import org.tensorflow.lite.gpu.CompatibilityList
+import org.tensorflow.lite.gpu.GpuDelegate
 import java.io.FileInputStream
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
@@ -57,7 +59,21 @@ class YoloDetector(context: Context) {
             // Standard Interpreter Options
             val options = Interpreter.Options().apply {
                 setNumThreads(4)
-                setUseNNAPI(false)
+                try {
+                    val compatList = CompatibilityList()
+                    if (compatList.isDelegateSupportedOnThisDevice) {
+                        val delegateOptions = compatList.bestOptionsForThisDevice
+                        val gpuDelegate = GpuDelegate(delegateOptions)
+                        addDelegate(gpuDelegate)
+                        Log.d("IRIS_YOLO", "✅ GPU delegate enabled (Best Options)")
+                    } else {
+                        Log.w("IRIS_YOLO", "⚠️ GPU delegate not supported on this device, falling back to NNAPI")
+                        setUseNNAPI(true)
+                    }
+                } catch (e: Exception) {
+                    Log.w("IRIS_YOLO", "⚠️ GPU initialization failed: ${e.message}")
+                    setUseNNAPI(true)
+                }
                 Log.d("IRIS_YOLO", "⚡ Initializing TensorFlow Lite Interpreter")
             }
 
@@ -186,6 +202,11 @@ class YoloDetector(context: Context) {
                 val finalH = origH / originalHeight
 
                 val label = labels.getOrElse(maxClassIndex) { "Unknown" }
+
+                // FILTER: Ignore "Train" class (false positives)
+                if (label.equals("Train", ignoreCase = true)) {
+                    continue
+                }
 
                 // NEW: Calculate distance using bbox dimensions
                 val distance = distanceCalculator.estimateDistance(
