@@ -19,8 +19,9 @@ class GroqBrain {
     private val TAG = "IRIS_GROQ"
 
     // --- CONFIGURATION ---
-    // API Key: Your Groq API key (⚠️ Move to secure storage in production)
-    private val apiKey = "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"
+    // API Key: Set this from BuildConfig or secure storage (NOT in source code!)
+    // Get your key at: https://console.groq.com
+    private val apiKey = System.getenv("GROQ_API_KEY") ?: ""
 
     // Primary Model: Llama 4 Scout (Active as of Dec 2025)
     private val PRIMARY_MODEL = "meta-llama/llama-4-scout-17b-16e-instruct"
